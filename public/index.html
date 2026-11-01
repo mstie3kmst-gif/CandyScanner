@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>🎃 Candy Safety Scanner 3000</title>
+<style>
+  :root {
+    --orange: #ff7a00;
+    --purple: #8a2be2;
+    --green: #39ff14;
+    --bg: #0d0614;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(ellipse at top, #2a0e3d 0%, var(--bg) 70%);
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 16px; padding-top: max(16px, env(safe-area-inset-top));
+    overflow-x: hidden;
+  }
+  h1 {
+    font-size: clamp(1.4rem, 6vw, 2.2rem);
+    color: var(--orange);
+    text-shadow: 0 0 10px var(--orange), 0 0 30px #ff3c00;
+    text-align: center; letter-spacing: 2px;
+  }
+  .sub { color: #c9a6ff; font-size: .85rem; margin: 4px 0 16px; text-align: center; }
+
+  .scanner {
+    position: relative; width: min(92vw, 420px); aspect-ratio: 3/4;
+    border: 3px solid var(--orange); border-radius: 18px; overflow: hidden;
+    box-shadow: 0 0 25px rgba(255,122,0,.5), inset 0 0 40px rgba(138,43,226,.4);
+    background: #000;
+  }
+  video, #idle, #snapshot {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  }
+  #idle {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 5rem; gap: 10px;
+    background: repeating-linear-gradient(45deg, #1a0a26 0 12px, #22102f 12px 24px);
+  }
+  #idle p { font-size: .9rem; color: #c9a6ff; }
+  #idle .bob { animation: bob 2s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(-12px) rotate(8deg); } }
+
+  /* reticle corners */
+  .corner { position: absolute; width: 40px; height: 40px; border: 4px solid var(--green); z-index: 3; }
+  .tl { top: 14px; left: 14px; border-right: 0; border-bottom: 0; }
+  .tr { top: 14px; right: 14px; border-left: 0; border-bottom: 0; }
+  .bl { bottom: 14px; left: 14px; border-right: 0; border-top: 0; }
+  .br { bottom: 14px; right: 14px; border-left: 0; border-top: 0; }
+  .scanning .corner { animation: pulse .6s infinite alternate; }
+  @keyframes pulse { to { opacity: .3; transform: scale(.9); } }
+
+  .scanline {
+    position: absolute; left: 0; right: 0; height: 4px; z-index: 4; display: none;
+    background: var(--green); box-shadow: 0 0 20px 6px var(--green);
+  }
+  .scanning .scanline { display: block; animation: sweep 1.4s ease-in-out infinite alternate; }
+  @keyframes sweep { from { top: 0; } to { top: calc(100% - 4px); } }
+
+  .grid {
+    position: absolute; inset: 0; z-index: 2; display: none;
+    background-image:
+      linear-gradient(rgba(57,255,20,.15) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(57,255,20,.15) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+  .scanning .grid { display: block; }
+
+  .hud {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 5;
+    background: linear-gradient(transparent, rgba(0,0,0,.85));
+    padding: 30px 14px 14px; font-size: .8rem; color: var(--green); display: none;
+  }
+  .scanning .hud { display: block; }
+  .bar { height: 10px; border: 1px solid var(--green); border-radius: 5px; margin-top: 8px; overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--green); box-shadow: 0 0 10px var(--green); transition: width .25s; }
+
+  .buttons { display: flex; flex-direction: column; gap: 10px; width: min(92vw, 420px); margin-top: 18px; }
+  button {
+    font: inherit; font-weight: bold; font-size: 1.1rem; letter-spacing: 1px;
+    padding: 16px; border-radius: 14px; border: none; cursor: pointer; color: #fff;
+    transition: transform .1s;
+  }
+  button:active { transform: scale(.97); }
+  button:disabled { opacity: .4; }
+  #scanBtn { background: linear-gradient(135deg, var(--orange), #ff3c00); box-shadow: 0 0 20px rgba(255,122,0,.6); }
+  #camBtn { background: transparent; border: 2px solid var(--purple); color: #c9a6ff; font-size: .95rem; padding: 12px; }
+
+  /* result overlay */
+  #result {
+    position: fixed; inset: 0; z-index: 50; display: none;
+    align-items: center; justify-content: center; padding: 20px;
+    background: rgba(5, 20, 5, .92); backdrop-filter: blur(4px);
+  }
+  #result.show { display: flex; animation: flash .5s; }
+  @keyframes flash { 0% { background: #39ff14; } }
+  .card {
+    width: min(92vw, 400px); text-align: center; padding: 26px 20px;
+    border: 3px solid var(--green); border-radius: 20px; background: #071a07;
+    box-shadow: 0 0 40px rgba(57,255,20,.5);
+    animation: pop .5s cubic-bezier(.2,1.6,.4,1);
+  }
+  @keyframes pop { from { transform: scale(.3); opacity: 0; } }
+  .card .big { font-size: 4.5rem; }
+  .card h2 { font-size: 2.6rem; color: var(--green); text-shadow: 0 0 15px var(--green); margin: 6px 0; }
+  .card .verdict { color: var(--orange); font-size: 1.1rem; margin-bottom: 16px; }
+  .stats { text-align: left; font-size: .85rem; line-height: 1.9; border-top: 1px dashed #2f6b2f; padding-top: 12px; }
+  .stats span { float: right; color: var(--green); }
+  .card .fine { font-size: .7rem; color: #7a9a7a; margin-top: 14px; }
+  .card button { width: 100%; margin-top: 16px; background: var(--green); color: #052005; }
+
+  #log { margin-top: 4px; min-height: 1.2em; }
+  .footer { margin-top: auto; padding-top: 20px; font-size: .7rem; color: #6f5a85; text-align: center; }
+
+  .confetti { position: fixed; top: -40px; font-size: 1.8rem; z-index: 60; pointer-events: none; animation: fall linear forwards; }
+  @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
+
+  .ghost { position: fixed; font-size: 2rem; opacity: .15; pointer-events: none; animation: float 14s linear infinite; }
+  @keyframes float { from { transform: translateX(-10vw); } to { transform: translateX(110vw); } }
+</style>
+</head>
+<body>
+  <div class="ghost" style="top:12%">👻</div>
+  <div class="ghost" style="top:70%; animation-delay:-7s; animation-duration:18s">🦇</div>
+
+  <h1>CANDY SAFETY<br>SCANNER 3000</h1>
+  <p class="sub">Patented Spook-Detection™ Technology</p>
+
+  <div class="scanner" id="scanner">
+    <div id="idle"><div class="bob">🍬</div><p>Place candy in view</p></div>
+    <video id="video" playsinline muted autoplay style="display:none"></video>
+    <canvas id="canvas" style="display:none"></canvas>
+    <img id="snapshot" style="display:none" alt="">
+    <div class="grid"></div>
+    <div class="scanline"></div>
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div class="hud">
+      <div id="log">INITIALIZING...</div>
+      <div class="bar"><div id="progress"></div></div>
+    </div>
+  </div>
+
+  <div class="buttons">
+    <button id="scanBtn">🔍 SCAN CANDY</button>
+    <button id="camBtn">📷 Turn on camera</button>
+  </div>
+
+  <div id="result">
+    <div class="card">
+      <div class="big">✅🍭</div>
+      <h2>SAFE!</h2>
+      <div class="verdict" id="verdict">Certified Spook-Free</div>
+      <div class="stats">
+        Sugar Level <span id="sSugar"></span><br>
+        Spook Level <span id="sSpook"></span><br>
+        Deliciousness <span id="sDelish"></span><br>
+        Scan ID <span id="sId"></span>
+      </div>
+      <button id="againBtn">SCAN ANOTHER 🎃</button>
+      <p class="fine">For entertainment only. This app can't actually see inside candy — grown-ups should still check wrappers!</p>
+    </div>
+  </div>
+
+  <p class="footer">🎃 Happy Halloween 🎃</p>
+
+<script>
+const $ = id => document.getElementById(id);
+const video = $('video'), canvas = $('canvas'), snapshot = $('snapshot');
+const scanner = $('scanner'), scanBtn = $('scanBtn'), camBtn = $('camBtn');
+let stream = null, busy = false;
+
+const steps = [
+  'CALIBRATING SUGAR SENSORS...',
+  'ANALYZING WRAPPER INTEGRITY...',
+  'MEASURING CHOCOLATE DENSITY...',
+  'CHECKING FOR GHOST RESIDUE...',
+  'SCANNING FOR WITCH HEXES...',
+  'CROSS-REFERENCING CANDY DATABASE...',
+  'CONSULTING THE PUMPKIN COUNCIL...',
+  'COUNTING CALORIES (DON\'T LOOK)...',
+  'VERIFYING YUMMINESS...',
+  'FINALIZING REPORT...'
+];
+
+// ---- tiny sound engine ----
+let actx;
+function beep(freq = 880, dur = 0.06, type = 'square', vol = 0.05) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq; g.gain.value = vol;
+    o.connect(g); g.connect(actx.destination);
+    o.start(); g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+    o.stop(actx.currentTime + dur);
+  } catch (e) {}
+}
+function successJingle() {
+  [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => beep(f, 0.18, 'triangle', 0.12), i * 120));
+}
+
+// ---- camera ----
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    alertish('Camera not supported here — the button scan still works!');
+    return false;
+  }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } }, audio: false
+    });
+    video.srcObject = stream;
+    video.style.display = 'block';
+    $('idle').style.display = 'none';
+    snapshot.style.display = 'none';
+    camBtn.textContent = '📷 Camera on (tap to turn off)';
+    return true;
+  } catch (e) {
+    alertish('Camera blocked — no worries, the scanner works without it!');
+    return false;
+  }
+}
+function stopCamera() {
+  stream?.getTracks().forEach(t => t.stop());
+  stream = null;
+  video.style.display = 'none';
+  $('idle').style.display = 'flex';
+  camBtn.textContent = '📷 Turn on camera';
+}
+function alertish(msg) {
+  $('idle').querySelector('p').textContent = msg;
+}
+
+camBtn.onclick = () => stream ? stopCamera() : startCamera();
+
+// ---- the scan ----
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function scan() {
+  if (busy) return;
+  busy = true; scanBtn.disabled = camBtn.disabled = true;
+  if (navigator.vibrate) navigator.vibrate(50);
+
+  // freeze a frame if the camera's on
+  if (stream && video.videoWidth) {
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    snapshot.src = canvas.toDataURL('image/jpeg', 0.8);
+    snapshot.style.display = 'block';
+  }
+
+  scanner.classList.add('scanning');
+  const apiCall = fetch('/api/analyze').then(r => r.json()).catch(() => null);
+
+  const shuffled = [...steps.slice(0, -1)].sort(() => Math.random() - 0.5).slice(0, 6);
+  shuffled.push(steps[steps.length - 1]);
+  for (let i = 0; i < shuffled.length; i++) {
+    $('log').textContent = '> ' + shuffled[i];
+    $('progress').style.width = ((i + 1) / shuffled.length * 100) + '%';
+    for (let b = 0; b < 4; b++) { beep(600 + Math.random() * 800); await sleep(110); }
+    await sleep(150 + Math.random() * 250);
+  }
+
+  const data = (await apiCall) || {
+    verdict: 'Certified Spook-Free', sugarLevel: 88, spookLevel: 0,
+    deliciousness: 99, scanId: 'CNDY-OFFLINE'
+  };
+
+  scanner.classList.remove('scanning');
+  $('progress').style.width = '0';
+  showResult(data);
+  busy = false; scanBtn.disabled = camBtn.disabled = false;
+}
+
+function showResult(d) {
+  $('verdict').textContent = d.verdict;
+  $('sSugar').textContent = d.sugarLevel + '% 🍬';
+  $('sSpook').textContent = d.spookLevel + '% 👻';
+  $('sDelish').textContent = d.deliciousness + '% 😋';
+  $('sId').textContent = d.scanId;
+  $('result').classList.add('show');
+  successJingle();
+  if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+  confetti();
+}
+
+function confetti() {
+  const bits = ['🍬', '🍭', '🍫', '🎃', '👻', '🦇', '⭐'];
+  for (let i = 0; i < 35; i++) {
+    const el = document.createElement('div');
+    el.className = 'confetti';
+    el.textContent = bits[Math.floor(Math.random() * bits.length)];
+    el.style.left = Math.random() * 100 + 'vw';
+    el.style.animationDuration = (2 + Math.random() * 2.5) + 's';
+    el.style.animationDelay = Math.random() * 0.6 + 's';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 5500);
+  }
+}
+
+$('againBtn').onclick = () => {
+  $('result').classList.remove('show');
+  snapshot.style.display = 'none';
+};
+scanBtn.onclick = scan;
+</script>
+</body>
+</html>
